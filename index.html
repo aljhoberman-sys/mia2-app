@@ -31,12 +31,15 @@
   label { font-size: 13px; color: var(--muted); }
   input[type=range] { width: 130px; accent-color: var(--accent); }
   select, input[type=text] { font: inherit; font-size: 14px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+  input.num { width: 64px; font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+  .unit { font-size: 13px; color: var(--muted); margin-left: -4px; }
   .time { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--muted); min-width: 92px; }
   .stage { position: relative; }
   canvas { display: block; width: 100%; touch-action: none; }
   #mini { border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; cursor: pointer; }
   #status { min-height: 22px; padding: 4px 14px 8px; font-size: 13px; color: var(--muted); }
   #status button { font-size: 13px; padding: 2px 10px; margin-left: 6px; }
+  #reconnect { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
   #loading { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100% - 32px));
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px;
     box-shadow: 0 2px 10px rgba(0,0,0,.08); font-size: 13px; color: var(--muted); z-index: 5; }
@@ -84,13 +87,15 @@
       </div>
       <div class="group">
         <label for="smooth">Gentle</label>
-        <input id="smooth" type="range" min="0" max="100" step="1" value="33" aria-label="Smoothing">
+        <input id="smooth" type="range" min="0" max="100" step="any" aria-label="Smoothing">
         <label for="smooth">Precise</label>
+        <input id="smoothNum" class="num" type="number" min="0.1" max="20" step="0.1" aria-label="Smoothing in seconds"><span class="unit">s</span>
       </div>
       <div class="group">
         <label for="zoom">Whole</label>
         <input id="zoom" type="range" min="0" max="100" step="1" value="0" aria-label="Zoom">
         <label for="zoom">Close up</label>
+        <input id="zoomNum" class="num" type="number" min="0.05" step="0.1" aria-label="Minutes shown across the chart"><span class="unit">min</span>
         <button id="fit">Fit</button>
       </div>
       <div class="group">

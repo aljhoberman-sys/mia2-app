@@ -14,7 +14,7 @@ const S = {
   pieces: [], notes: [], total: 0,
   pxPerSec: 1, scroll: 0, playhead: 0,
   playing: false, dimmed: false,
-  smooth: 33, scaleMode: 'program', dB: false, notesMode: false,
+  smoothSec: 3.5, scaleMode: 'program', dB: false, notesMode: false,
   globalPeak: 1, globalMiniPeak: 1,
   pending: [],      // pieces named by an opened session, still waiting for their audio
   undo: null,       // last removed piece, restorable for a short while
@@ -124,7 +124,10 @@ function envelope(buf) {
 // slider 0..100 runs from 20 s (Gentle) to 0.1 s (Precise); the default of about 3.5 s
 // matches the smoothing in Bonde's MIA profiles
 const smoothSec = v => 0.1 * Math.pow(200, (100 - v) / 100);
-const smoothSlider = sec => cl(Math.round(100 - 100 * Math.log(sec / 0.1) / Math.log(200)), 0, 100);
+const smoothSlider = sec => cl(100 - 100 * Math.log(sec / 0.1) / Math.log(200), 0, 100);
+// smoothing is kept in seconds, rounded to what the number box shows, so a typed value is reproduced exactly
+const roundSec = sec => cl(Math.round(sec * 10) / 10, 0.1, 20);
+function showSmooth() { $('smooth').value = smoothSlider(S.smoothSec); $('smoothNum').value = S.smoothSec.toFixed(1); }
 
 // moving average over `sec` seconds; returns the smoothed envelope and its peak
 function boxSmooth(e, sec) {
@@ -141,7 +144,7 @@ function boxSmooth(e, sec) {
 }
 
 function recompute() {
-  const sec = smoothSec(S.smooth);
+  const sec = S.smoothSec;
   let gp = 1e-9, gm = 1e-9;
   for (const p of S.pieces) {
     ({ sm: p.sm, pk: p.peak } = boxSmooth(p.env, sec));
@@ -348,6 +351,8 @@ function clampScroll() {
 function syncZoom() {
   const mn = minPx();
   $('zoom').value = MAX_PX > mn ? cl(100 * Math.log(S.pxPerSec / mn) / Math.log(MAX_PX / mn), 0, 100) : 0;
+  // minutes of music across the chart
+  $('zoomNum').value = S.total ? +(W / S.pxPerSec / 60).toFixed(W / S.pxPerSec < 600 ? 2 : 1) : '';
 }
 
 function fit() {
@@ -551,7 +556,7 @@ async function saveSession() {
   }
   const data = {
     app: 'MIA 2', version: 1, sessionId: S.sessionId, savedAt: new Date().toISOString(),
-    settings: { smooth: S.smooth, smoothSec: +smoothSec(S.smooth).toFixed(3), scale: S.scaleMode, dB: S.dB },
+    settings: { smoothSec: S.smoothSec, scale: S.scaleMode, dB: S.dB },
     pieces: S.pieces.map(p => ({ id: p.id, file: p.file, title: p.title, color: p.color, dur: +p.dur.toFixed(3) })),
     notes: S.notes.filter(n => byId(n.pieceId)).map(n => ({ pieceId: n.pieceId, offset: +n.offset.toFixed(3), text: n.text })),
   };
@@ -585,6 +590,9 @@ async function reconnect(interactive) {
   }
   if (ready.length) await addFiles(ready);
   $('reconnect').hidden = !needPermission;
+  // Chrome asks again for each file after a reload unless "Allow on every visit" was chosen
+  if (needPermission) status('This browser remembers where ' + (needPermission === 1 ? '1 file is' : needPermission + ' files are')
+    + '. Click Reconnect saved files and allow access to load ' + (needPermission === 1 ? 'it.' : 'them.'));
 }
 
 async function openSession(file) {
@@ -602,10 +610,10 @@ async function openSession(file) {
   S.notes = (data.notes || []).map(n => ({ id: nextId++, pieceId: n.pieceId, offset: n.offset, text: n.text, box: null }));
   const st = data.settings || {};
   // sessions saved before smoothSec existed used a 0.05..3 s slider
-  S.smooth = st.smoothSec ? smoothSlider(+st.smoothSec)
-    : st.smooth != null ? smoothSlider(0.05 * Math.pow(60, (100 - cl(+st.smooth, 0, 100)) / 100)) : 33;
+  S.smoothSec = roundSec(st.smoothSec ? +st.smoothSec
+    : st.smooth != null ? 0.05 * Math.pow(60, (100 - cl(+st.smooth, 0, 100)) / 100) : 3.5);
   S.scaleMode = st.scale === 'own' ? 'own' : 'program'; S.dB = !!st.dB;
-  $('smooth').value = S.smooth; $('scale').value = S.scaleMode; $('ydb').value = S.dB ? 'db' : 'lin';
+  showSmooth(); $('scale').value = S.scaleMode; $('ydb').value = S.dB ? 'db' : 'lin';
   S.sessionId = data.sessionId || null;
   S.playhead = 0; layout(); fit(); updateTime(); refreshStatus();
   await reconnect(false);
@@ -762,11 +770,21 @@ $('file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; 
 $('play').onclick = () => (S.playing ? pause() : play());
 $('stop').onclick = stop;
 $('fit').onclick = fit;
-$('smooth').value = S.smooth; $('scale').value = S.scaleMode;
-$('smooth').oninput = e => { S.smooth = +e.target.value; recompute(); redraw(); };
+showSmooth(); $('scale').value = S.scaleMode;
+$('smooth').oninput = e => { S.smoothSec = roundSec(smoothSec(+e.target.value)); $('smoothNum').value = S.smoothSec.toFixed(1); recompute(); redraw(); };
+$('smoothNum').onchange = e => {
+  const v = parseFloat(e.target.value);
+  if (v > 0) { S.smoothSec = roundSec(v); recompute(); redraw(); }
+  showSmooth();
+};
 $('zoom').oninput = e => {
   const mn = minPx(), px = mn * Math.pow(Math.max(1, MAX_PX / mn), e.target.value / 100);
   setZoom(px, S.playing ? Math.min(W - 40, Math.max(40, timeToX(S.playhead))) : W / 2);
+};
+$('zoomNum').onchange = e => {
+  const v = parseFloat(e.target.value);
+  if (v > 0 && S.total) setZoom(W / (v * 60), S.playing ? Math.min(W - 40, Math.max(40, timeToX(S.playhead))) : W / 2);
+  else syncZoom();
 };
 $('notes').onclick = e => {
   S.notesMode = !S.notesMode;
