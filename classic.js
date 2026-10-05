@@ -33,9 +33,14 @@ const byId = id => S.pieces.find(p => p.id === id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 const status = msg => { $('statusText').textContent = msg || ''; };
-const waitingText = () => S.pending.length
-  ? 'Waiting for audio: ' + S.pending.map(q => q.file).join(', ') + '. Use Add music or drop the files here.' : '';
-const refreshStatus = () => status(waitingText());
+// a reopened session's missing audio is listed in a banner above the chart, with ways to find it
+function showMissing() {
+  const n = S.pending.length;
+  $('missing').hidden = !n;
+  if (n) $('missingText').textContent = 'Waiting for ' + (n === 1 ? '1 audio file' : n + ' audio files') + ': '
+    + S.pending.map(q => q.file).join(', ');
+}
+const refreshStatus = () => { showMissing(); status(''); };
 const baseName = n => n.replace(/\.[^.]+$/, '').toLowerCase();
 
 /* Remembered file locations (Chrome and Edge only): the picker gives a handle to each file,
@@ -215,7 +220,7 @@ function draw() {
   if (!S.pieces.length) {
     g.fillStyle = T.muted; g.textAlign = 'center'; g.font = '15px -apple-system, "Segoe UI", Roboto, sans-serif';
     if (S.pending.length) {
-      g.fillText('Session loaded. Add these audio files to continue:', W / 2, H / 2 - 20);
+      g.fillText('Session loaded. Use Find matching files above, or drop these files here:', W / 2, H / 2 - 20);
       S.pending.slice(0, 6).forEach((q, i) => g.fillText(q.file, W / 2, H / 2 + 6 + i * 22));
     } else {
       g.fillText('Drop audio files here, or use Add music', W / 2, H / 2);
@@ -572,7 +577,7 @@ async function saveSession() {
 
 // look up remembered file locations for pending session pieces; interactive = called from a click
 async function reconnect(interactive) {
-  if (!canRemember || !S.sessionId || !S.pending.length) { $('reconnect').hidden = true; return; }
+  if (!canRemember || !S.sessionId || !S.pending.length) { $('reconnect').hidden = true; showMissing(); return; }
   const ready = [];
   let needPermission = 0;
   for (const q of [...S.pending]) {
@@ -589,10 +594,73 @@ async function reconnect(interactive) {
     } else needPermission++;
   }
   if (ready.length) await addFiles(ready);
-  $('reconnect').hidden = !needPermission;
   // Chrome asks again for each file after a reload unless "Allow on every visit" was chosen
-  if (needPermission) status('This browser remembers where ' + (needPermission === 1 ? '1 file is' : needPermission + ' files are')
-    + '. Click Reconnect saved files and allow access to load ' + (needPermission === 1 ? 'it.' : 'them.'));
+  $('reconnect').hidden = !needPermission;
+  $('reconnect').textContent = needPermission === 1 ? 'Reconnect 1 saved file' : 'Reconnect ' + needPermission + ' saved files';
+  showMissing();
+}
+
+const AUDIO_EXT = /\.(mp3|wav|m4a|flac|ogg|aac|aif+)$/i;
+
+// pair each pending piece with a file of the same name (exact first, then ignoring the extension)
+function matchPending(entries) {
+  const byName = new Map(), byBase = new Map();
+  for (const e of entries) {
+    const n = e.name.toLowerCase();
+    if (!byName.has(n)) byName.set(n, e);
+    if (!byBase.has(baseName(n))) byBase.set(baseName(n), e);
+  }
+  return S.pending.map(q => ({ q, e: byName.get(q.file.toLowerCase()) || byBase.get(baseName(q.file)) })).filter(m => m.e);
+}
+
+// walk a picked folder and its subfolders for audio files, stopping once every name is found
+async function audioIn(dir, wanted, depth = 0, out = [], seen = { n: 0 }) {
+  for await (const h of dir.values()) {
+    if (++seen.n > 50000 || wanted.size === 0) break;
+    if (h.kind === 'file' && AUDIO_EXT.test(h.name)) {
+      out.push(h);
+      wanted.delete(h.name.toLowerCase()); wanted.delete(baseName(h.name));
+    } else if (h.kind === 'directory' && depth < 6 && !h.name.startsWith('.')) {
+      await audioIn(h, wanted, depth + 1, out, seen);
+    }
+  }
+  return out;
+}
+
+async function addMatches(matches, searched) {
+  const total = S.pending.length;
+  if (!matches.length) {
+    status('None of the missing files are in ' + searched + '. Try the folder they were in when you made the session.');
+    return;
+  }
+  const files = [];
+  for (const { q, e } of matches) {
+    const f = e.getFile ? await e.getFile() : e;
+    if (e.getFile) handleOf.set(f, e);
+    claimOf.set(f, q); files.push(f);
+  }
+  await addFiles(files);
+  const left = S.pending.length;
+  status('Found ' + matches.length + ' of ' + total + ' in ' + searched + '.'
+    + (left ? ' Still missing ' + left + '; try another folder.' : ''));
+}
+
+async function findFiles() {
+  if (!S.pending.length) return;
+  if (!window.showDirectoryPicker) { $('folder').click(); return; }
+  let dir;
+  try {
+    // the id makes Chrome reopen the picker in the last folder used
+    dir = await window.showDirectoryPicker({ id: 'mia-audio', mode: 'read' });
+  } catch (err) {
+    if (err.name !== 'AbortError') $('folder').click();
+    return;
+  }
+  status('Searching ' + dir.name + '…');
+  const wanted = new Set(S.pending.flatMap(q => [q.file.toLowerCase(), baseName(q.file)]));
+  let found = [];
+  try { found = await audioIn(dir, wanted); } catch (e) { /* unreadable subfolder */ }
+  await addMatches(matchPending(found), '“' + dir.name + '”');
 }
 
 async function openSession(file) {
@@ -762,6 +830,12 @@ $('add').onclick = async () => {
   }
 };
 $('reconnect').onclick = () => reconnect(true);
+$('findFiles').onclick = findFiles;
+$('folder').onchange = async e => {
+  const files = [...e.target.files].filter(f => AUDIO_EXT.test(f.name));
+  e.target.value = '';
+  await addMatches(matchPending(files), 'that folder');
+};
 $('openSession').onclick = () => $('sessionFile').click();
 $('sessionFile').onchange = e => { if (e.target.files[0]) openSession(e.target.files[0]); e.target.value = ''; };
 $('saveSession').onclick = saveSession;
