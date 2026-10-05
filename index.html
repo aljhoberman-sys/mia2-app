@@ -37,6 +37,15 @@
   #mini { border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; cursor: pointer; }
   #status { min-height: 22px; padding: 4px 14px 8px; font-size: 13px; color: var(--muted); }
   #status button { font-size: 13px; padding: 2px 10px; margin-left: 6px; }
+  #loading { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100% - 32px));
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.08); font-size: 13px; color: var(--muted); z-index: 5; }
+  #loadingText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
+  #loadingTrack { height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; }
+  #loadingFill { height: 100%; width: 0; border-radius: 3px; transition: width .3s ease;
+    background: repeating-linear-gradient(-45deg, var(--accent) 0 8px, color-mix(in srgb, var(--accent) 75%, var(--panel)) 8px 16px);
+    background-size: 22.6px 100%; animation: loadingStripes .8s linear infinite; }
+  @keyframes loadingStripes { to { background-position: 22.6px 0; } }
   details { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
   summary { cursor: pointer; color: var(--muted); }
   .more { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 8px; align-items: center; }
@@ -93,6 +102,7 @@
 
     <div class="stage" id="stage">
       <canvas id="chart" aria-label="Volume contour chart"></canvas>
+      <div id="loading" class="no-print" hidden><div id="loadingText"></div><div id="loadingTrack"><div id="loadingFill"></div></div></div>
       <div class="pop" id="piecePop" hidden>
         <div class="row"><input type="text" id="pTitle" aria-label="Piece title"><input type="color" id="pColor" aria-label="Line color"></div>
         <div class="row"><button id="pRemove">Remove piece</button><button id="pDone">Done</button></div>

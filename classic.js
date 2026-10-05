@@ -439,11 +439,29 @@ function seek(t) {
 async function addFiles(files, index) {
   const ac = ensureAudio();
   let at = index == null ? S.pieces.length : index;
-  for (const f of files) {
+  files = [...files];
+  const failed = [];
+  // decoding can't report its own progress, so the bar moves in steps: read, decoded, ready
+  const fill = $('loadingFill');
+  const progress = (i, f, frac) => {
+    if ($('loading').hidden) {
+      // start an empty bar without animating down from the last batch
+      fill.style.transition = 'none'; fill.style.width = '0'; fill.offsetWidth; fill.style.transition = '';
+      $('loading').hidden = false;
+    }
+    $('loadingText').textContent = (files.length > 1 ? 'Loading ' + (i + 1) + ' of ' + files.length + ': ' : 'Loading ') + f.name;
+    fill.style.width = (100 * (i + frac) / files.length) + '%';
+  };
+  // a short timeout (not requestAnimationFrame, which stalls in background tabs) lets the bar repaint
+  const paint = () => new Promise(r => setTimeout(r, 16));
+  for (const [i, f] of files.entries()) {
     try {
-      status('Reading ' + f.name + '…');
-      const buffer = await ac.decodeAudioData(await f.arrayBuffer());
-      await new Promise(r => setTimeout(r, 0));
+      progress(i, f, 0.02);
+      const data = await f.arrayBuffer();
+      progress(i, f, 0.15);
+      const buffer = await ac.decodeAudioData(data);
+      progress(i, f, 0.85);
+      await paint();
       // an opened session claims files by exact name first, then by name without extension
       const claimed = claimOf.get(f);
       const pend = (claimed && S.pending.includes(claimed) ? claimed : null)
@@ -468,10 +486,14 @@ async function addFiles(files, index) {
       }
       layout(); recompute(); fit(); updateTime();
       if (!pend || Math.abs(buffer.duration - pend.dur) <= 2) refreshStatus();
+      progress(i, f, 1);
+      await paint();
     } catch (err) {
-      status('Couldn’t open ' + f.name + '. Try MP3, WAV, M4A, FLAC or OGG.');
+      failed.push(f.name);
     }
   }
+  $('loading').hidden = true;
+  if (failed.length) status('Couldn’t open ' + failed.join(', ') + '. Try MP3, WAV, M4A, FLAC or OGG.');
 }
 
 function pieceAt(t) {
