@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIA 2</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --fg: #1f1e1c; --muted: #6b6a66;
+    --line: #dedcd5; --soft: #efede7; --accent: #185FA5; --accent-bg: #e6f1fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1b19; --panel: #262624; --fg: #ecebe6; --muted: #a3a29c;
+      --line: #3d3d3a; --soft: #30302d; --accent: #85B7EB; --accent-bg: #0c447c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; font-weight: 500; margin: 0; }
+  header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .tag { font-size: 12px; color: var(--muted); background: var(--soft); padding: 2px 8px; border-radius: 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .group { display: flex; align-items: center; gap: 8px; }
+  button { font: inherit; font-size: 14px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: var(--soft); }
+  button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+  button.primary { min-width: 84px; }
+  label { font-size: 13px; color: var(--muted); }
+  input[type=range] { width: 130px; accent-color: var(--accent); }
+  select, input[type=text] { font: inherit; font-size: 14px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+  .time { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--muted); min-width: 92px; }
+  .stage { position: relative; }
+  canvas { display: block; width: 100%; touch-action: none; }
+  #mini { border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; cursor: pointer; }
+  #status { min-height: 22px; padding: 4px 14px 8px; font-size: 13px; color: var(--muted); }
+  #status button { font-size: 13px; padding: 2px 10px; margin-left: 6px; }
+  details { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .more { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 8px; align-items: center; }
+  .pop { position: absolute; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; width: 240px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+  .pop[hidden] { display: none; }
+  .pop .row { display: flex; gap: 8px; align-items: center; }
+  .pop input[type=text] { flex: 1; min-width: 0; }
+  .pop input[type=color] { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  .hint { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+  @media print {
+    body { background: #fff; color: #000; }
+    .no-print, details, #status, .hint { display: none !important; }
+    .card { border: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>MIA 2</h1><span class="tag">Classic view</span>
+  </header>
+
+  <div class="card" id="card">
+    <div class="bar no-print">
+      <div class="group">
+        <button id="add">Add music</button>
+        <input id="file" type="file" accept="audio/*" multiple hidden>
+        <button id="openSession">Open session</button>
+        <button id="saveSession">Save session</button>
+        <input id="sessionFile" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div class="group">
+        <button id="play" class="primary">Play</button>
+        <button id="stop">Stop</button>
+        <span class="time" id="time">0:00 / 0:00</span>
+      </div>
+      <div class="group">
+        <label for="smooth">Gentle</label>
+        <input id="smooth" type="range" min="0" max="100" step="1" value="23" aria-label="Smoothing">
+        <label for="smooth">Precise</label>
+      </div>
+      <div class="group">
+        <label for="zoom">Whole</label>
+        <input id="zoom" type="range" min="0" max="100" step="1" value="0" aria-label="Zoom">
+        <label for="zoom">Close up</label>
+        <button id="fit">Fit</button>
+      </div>
+      <div class="group">
+        <button id="notes" aria-pressed="false">Add notes</button>
+        <button id="save">Save image</button>
+        <button id="print">Print</button>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <canvas id="chart" aria-label="Volume contour chart"></canvas>
+      <div class="pop" id="piecePop" hidden>
+        <div class="row"><input type="text" id="pTitle" aria-label="Piece title"><input type="color" id="pColor" aria-label="Line color"></div>
+        <div class="row"><button id="pRemove">Remove piece</button><button id="pDone">Done</button></div>
+      </div>
+      <div class="pop" id="notePop" hidden>
+        <input type="text" id="nText" maxlength="120" placeholder="Note" aria-label="Note text">
+        <div class="row"><button id="nDelete">Delete</button><button id="nDone">Done</button></div>
+      </div>
+    </div>
+    <canvas id="mini" aria-label="Whole program mini-map"></canvas>
+    <div id="status" role="status" aria-live="polite"><span id="statusText"></span> <button id="undo" hidden>Undo remove</button><button id="reconnect" hidden>Reconnect saved files</button></div>
+
+    <details class="no-print">
+      <summary>More</summary>
+      <div class="more">
+        <div class="group">
+          <label for="scale">Scaling</label>
+          <select id="scale">
+            <option value="program" selected>Whole program together</option>
+            <option value="own">Each piece to its own peak</option>
+          </select>
+        </div>
+        <div class="group">
+          <label for="ydb">Volume axis</label>
+          <select id="ydb">
+            <option value="lin">Linear</option>
+            <option value="db">Decibels (60 dB range)</option>
+          </select>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <p class="hint no-print">
+    Drop audio files anywhere on the page. Drag a piece's title bar to reorder. Drag the chart to scroll, drag along the ruler to set the start point,
+    and pinch or Alt+scroll to zoom. Double-click a title bar to rename it or change its color, and use the × on a title bar to remove a piece.
+    Save session keeps your order, titles, colors and notes in a small file (not the audio); open it later and add the same audio files again.
+  </p>
+</main>
+<script src="classic.js"></script>
+</body>
+</html>
