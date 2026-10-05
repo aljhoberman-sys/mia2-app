@@ -14,7 +14,7 @@ const S = {
   pieces: [], notes: [], total: 0,
   pxPerSec: 1, scroll: 0, playhead: 0,
   playing: false, dimmed: false,
-  smooth: 23, scaleMode: 'program', dB: false, notesMode: false,
+  smooth: 33, scaleMode: 'program', dB: false, notesMode: false,
   globalPeak: 1, globalMiniPeak: 1,
   pending: [],      // pieces named by an opened session, still waiting for their audio
   undo: null,       // last removed piece, restorable for a short while
@@ -121,10 +121,10 @@ function envelope(buf) {
   return out;
 }
 
-// slider 0..100 runs from 10 s (Gentle) to 0.1 s (Precise); the default of about 3.5 s
+// slider 0..100 runs from 20 s (Gentle) to 0.1 s (Precise); the default of about 3.5 s
 // matches the smoothing in Bonde's MIA profiles
-const smoothSec = v => 0.1 * Math.pow(100, (100 - v) / 100);
-const smoothSlider = sec => cl(Math.round(100 - 100 * Math.log(sec / 0.1) / Math.log(100)), 0, 100);
+const smoothSec = v => 0.1 * Math.pow(200, (100 - v) / 100);
+const smoothSlider = sec => cl(Math.round(100 - 100 * Math.log(sec / 0.1) / Math.log(200)), 0, 100);
 
 // moving average over `sec` seconds; returns the smoothed envelope and its peak
 function boxSmooth(e, sec) {
@@ -603,7 +603,7 @@ async function openSession(file) {
   const st = data.settings || {};
   // sessions saved before smoothSec existed used a 0.05..3 s slider
   S.smooth = st.smoothSec ? smoothSlider(+st.smoothSec)
-    : st.smooth != null ? smoothSlider(0.05 * Math.pow(60, (100 - cl(+st.smooth, 0, 100)) / 100)) : 23;
+    : st.smooth != null ? smoothSlider(0.05 * Math.pow(60, (100 - cl(+st.smooth, 0, 100)) / 100)) : 33;
   S.scaleMode = st.scale === 'own' ? 'own' : 'program'; S.dB = !!st.dB;
   $('smooth').value = S.smooth; $('scale').value = S.scaleMode; $('ydb').value = S.dB ? 'db' : 'lin';
   S.sessionId = data.sessionId || null;
