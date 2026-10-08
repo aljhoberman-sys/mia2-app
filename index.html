@@ -26,6 +26,7 @@
   .group { display: flex; align-items: center; gap: 8px; }
   button { font: inherit; font-size: 14px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
   button:hover { background: var(--soft); }
+  button:disabled { opacity: .45; cursor: default; background: transparent; }
   button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
   button.primary { min-width: 84px; }
   label { font-size: 13px; color: var(--muted); }
@@ -156,7 +157,8 @@
   <p class="hint no-print">
     Drop audio files anywhere on the page. Drag a piece's title bar to reorder. Drag the chart to scroll, drag along the ruler to set the start point,
     and pinch or Alt+scroll to zoom. Double-click a title bar to rename it or change its color, and use the × on a title bar to remove a piece.
-    Save session keeps your order, titles, colors and notes in a small file (not the audio); open it later and add the same audio files again.
+    Save session keeps the chart, your order, titles, colors and notes in a file (not the audio). Opening it shows the chart straight away;
+    to play it, add the same audio files again.
   </p>
 </main>
 <script src="classic.js"></script>

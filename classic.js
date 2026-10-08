@@ -35,10 +35,12 @@ const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + '
 const status = msg => { $('statusText').textContent = msg || ''; };
 // a reopened session's missing audio is listed in a banner above the chart, with ways to find it
 function showMissing() {
-  const n = S.pending.length;
+  const n = S.pending.length, files = n === 1 ? '1 audio file' : n + ' audio files';
   $('missing').hidden = !n;
-  if (n) $('missingText').textContent = 'Waiting for ' + (n === 1 ? '1 audio file' : n + ' audio files') + ': '
+  if (n) $('missingText').textContent = (S.pending.every(q => q.piece)
+    ? 'The chart is complete. To play it, add ' + (n === 1 ? 'this audio file: ' : 'these ' + n + ' audio files: ') : 'Waiting for ' + files + ': ')
     + S.pending.map(q => q.file).join(', ');
+  showPlayable();
 }
 const refreshStatus = () => { showMissing(); status(''); };
 const baseName = n => n.replace(/\.[^.]+$/, '').toLowerCase();
@@ -399,7 +401,7 @@ function startAt(t) {
   const ac = ensureAudio();
   const now = ac.currentTime + 0.05;
   for (const p of S.pieces) {
-    if (t >= p.start + p.dur) continue;
+    if (t >= p.start + p.dur || !p.buffer) continue;
     const src = ac.createBufferSource();
     src.buffer = p.buffer; src.connect(ac.destination);
     src.start(now + Math.max(0, p.start - t), Math.max(0, t - p.start));
@@ -424,6 +426,7 @@ function tick() {
 
 function play() {
   if (!S.pieces.length) { status('Add some music first.'); return; }
+  if (silent()) { status('Playback needs the audio files. Use Find matching files above the chart.'); return; }
   ensureAudio().resume();
   if (S.playhead >= S.total - 0.05) S.playhead = 0;
   startAt(S.playhead);
@@ -477,6 +480,17 @@ async function addFiles(files, index) {
       const pend = (claimed && S.pending.includes(claimed) ? claimed : null)
         || S.pending.find(q => q.file.toLowerCase() === f.name.toLowerCase())
         || S.pending.find(q => baseName(q.file) === baseName(f.name));
+      if (pend && pend.piece) {
+        // already on the chart from its saved curve: the audio only makes it playable
+        Object.assign(pend.piece, { buffer, file: f.name, handle: handleOf.get(f) || null });
+        S.pending = S.pending.filter(q => q !== pend);
+        if (Math.abs(buffer.duration - pend.piece.dur) > 2) {
+          status(f.name + ' is ' + fmt(buffer.duration) + ' long but the session had ' + fmt(pend.piece.dur) + '. It may be a different recording.');
+        } else refreshStatus();
+        progress(i, f, 1);
+        await paint();
+        continue;
+      }
       const id = pend ? pend.id : nextId++;
       const piece = {
         id, file: f.name, handle: handleOf.get(f) || null, title: pend ? pend.title : f.name.replace(/\.[^.]+$/, ''),
@@ -525,11 +539,13 @@ let undoTimer = 0;
 
 function removePiece(p) {
   if (S.playing) pause();
-  S.undo = { piece: p, index: S.pieces.indexOf(p), notes: S.notes.filter(n => n.pieceId === p.id) };
+  S.undo = { piece: p, index: S.pieces.indexOf(p), notes: S.notes.filter(n => n.pieceId === p.id),
+    pending: S.pending.filter(q => q.piece === p) };
   S.pieces = S.pieces.filter(q => q !== p);
+  S.pending = S.pending.filter(q => q.piece !== p);
   S.notes = S.notes.filter(n => n.pieceId !== p.id);
   layout(); recompute(); S.playhead = Math.min(S.playhead, S.total);
-  fit(); updateTime();
+  fit(); updateTime(); showMissing();
   status('Removed “' + p.title + '”.');
   $('undo').hidden = false;
   clearTimeout(undoTimer);
@@ -543,13 +559,40 @@ function undoRemove() {
   if (S.playing) pause();
   S.pieces.splice(Math.min(u.index, S.pieces.length), 0, u.piece);
   S.notes.push(...u.notes);
+  S.pending.push(...u.pending);
   layout(); recompute(); fit(); updateTime(); refreshStatus();
 }
 
 /* ---------- sessions ---------- */
 
+// the raw envelope goes into the session file as base64 of its 32-bit floats, so a reopened
+// session draws exactly the same chart without the audio
+function curveToText(env) {
+  const bytes = new Uint8Array(env.buffer, env.byteOffset, env.byteLength);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function curveFromText(text) {
+  const s = atob(text), bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return new Float32Array(bytes.buffer, 0, bytes.length >> 2);
+}
+// a saved curve is usable only if it was made the same way this page makes one
+function savedCurve(c) {
+  if (!c || c.hop !== HOP || c.weighting !== 'A' || c.encoding !== 'f32-base64' || typeof c.data !== 'string') return null;
+  try { const env = curveFromText(c.data); return env.length ? env : null; } catch (e) { return null; }
+}
+
+// pieces still without audio: either drawn from a saved curve (playable once found) or not drawn at all
+const silent = () => S.pieces.some(p => !p.buffer);
+function showPlayable() {
+  $('play').disabled = silent();
+  $('play').title = silent() ? 'Playback needs the audio files. Use Find matching files above the chart.' : '';
+}
+
 async function saveSession() {
-  if (S.pending.length) { status('Add the remaining audio files before saving.'); return; }
+  if (S.pending.some(q => !q.piece)) { status('Add the remaining audio files before saving.'); return; }
   if (!S.pieces.length) { status('Nothing to save yet.'); return; }
   if (!S.sessionId) S.sessionId = crypto.randomUUID();
   let remembered = 0;
@@ -560,9 +603,12 @@ async function saveSession() {
     }
   }
   const data = {
-    app: 'MIA 2', version: 1, sessionId: S.sessionId, savedAt: new Date().toISOString(),
+    app: 'MIA 2', version: 2, sessionId: S.sessionId, savedAt: new Date().toISOString(),
     settings: { smoothSec: S.smoothSec, scale: S.scaleMode, dB: S.dB },
-    pieces: S.pieces.map(p => ({ id: p.id, file: p.file, title: p.title, color: p.color, dur: +p.dur.toFixed(3) })),
+    pieces: S.pieces.map(p => ({
+      id: p.id, file: p.file, title: p.title, color: p.color, dur: +p.dur.toFixed(3),
+      curve: { hop: HOP, weighting: 'A', encoding: 'f32-base64', data: curveToText(p.env) },
+    })),
     notes: S.notes.filter(n => byId(n.pieceId)).map(n => ({ pieceId: n.pieceId, offset: +n.offset.toFixed(3), text: n.text })),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -571,7 +617,7 @@ async function saveSession() {
   a.download = 'mia-session-' + new Date().toISOString().slice(0, 10) + '.json';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  status('Session saved. It holds your order, titles, colors and notes, but not the audio.'
+  status('Session saved. It holds the chart, order, titles, colors and notes, but not the audio.'
     + (remembered ? ' This browser also remembered where ' + remembered + ' of the files are.' : ''));
 }
 
@@ -674,6 +720,14 @@ async function openSession(file) {
   if (S.playing) pause();
   S.pieces = []; S.notes = []; S.undo = null; $('undo').hidden = true;
   S.pending = data.pieces.map((p, i) => ({ id: p.id, file: p.file, title: p.title, color: p.color, dur: p.dur, sessionIdx: i }));
+  // sessions saved with curves draw at once; older ones (and unreadable curves) wait for their audio as before
+  S.pending.forEach((q, i) => {
+    const env = savedCurve(data.pieces[i].curve);
+    if (!env) return;
+    q.piece = { id: q.id, file: q.file, handle: null, title: q.title, color: q.color, buffer: null,
+      dur: +q.dur || env.length * HOP, env, sm: null, peak: 1, start: 0, sessionIdx: i };
+    S.pieces.push(q.piece);
+  });
   nextId = Math.max(nextId, ...data.pieces.map(p => p.id)) + 1;
   S.notes = (data.notes || []).map(n => ({ id: nextId++, pieceId: n.pieceId, offset: n.offset, text: n.text, box: null }));
   const st = data.settings || {};
@@ -683,7 +737,7 @@ async function openSession(file) {
   S.scaleMode = st.scale === 'own' ? 'own' : 'program'; S.dB = !!st.dB;
   showSmooth(); $('scale').value = S.scaleMode; $('ydb').value = S.dB ? 'db' : 'lin';
   S.sessionId = data.sessionId || null;
-  S.playhead = 0; layout(); fit(); updateTime(); refreshStatus();
+  S.playhead = 0; layout(); recompute(); fit(); updateTime(); refreshStatus();
   await reconnect(false);
 }
 
