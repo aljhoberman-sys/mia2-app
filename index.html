@@ -85,7 +85,8 @@
         <input id="file" type="file" accept="audio/*" multiple hidden>
         <button id="openSession">Open session</button>
         <button id="saveSession">Save session</button>
-        <input id="sessionFile" type="file" accept=".json,application/json" hidden>
+        <button id="saveAudio" title="One .zip with the session and its audio files, to move to another computer or share">Save with audio</button>
+        <input id="sessionFile" type="file" accept=".json,.zip,application/json,application/zip" hidden>
       </div>
       <div class="group">
         <button id="play" class="primary">Play</button>
@@ -158,7 +159,7 @@
     Drop audio files anywhere on the page. Drag a piece's title bar to reorder. Drag the chart to scroll, drag along the ruler to set the start point,
     and pinch or Alt+scroll to zoom. Double-click a title bar to rename it or change its color, and use the × on a title bar to remove a piece.
     Save session keeps the chart, your order, titles, colors and notes in a file (not the audio). Opening it shows the chart straight away;
-    to play it, add the same audio files again.
+    to play it, add the same audio files again. Save with audio makes one .zip that also holds the audio, so it opens complete on any computer.
   </p>
 </main>
 <script src="classic.js"></script>

@@ -482,7 +482,7 @@ async function addFiles(files, index) {
         || S.pending.find(q => baseName(q.file) === baseName(f.name));
       if (pend && pend.piece) {
         // already on the chart from its saved curve: the audio only makes it playable
-        Object.assign(pend.piece, { buffer, file: f.name, handle: handleOf.get(f) || null });
+        Object.assign(pend.piece, { buffer, src: f, file: f.name, handle: handleOf.get(f) || null });
         S.pending = S.pending.filter(q => q !== pend);
         if (Math.abs(buffer.duration - pend.piece.dur) > 2) {
           status(f.name + ' is ' + fmt(buffer.duration) + ' long but the session had ' + fmt(pend.piece.dur) + '. It may be a different recording.');
@@ -495,7 +495,7 @@ async function addFiles(files, index) {
       const piece = {
         id, file: f.name, handle: handleOf.get(f) || null, title: pend ? pend.title : f.name.replace(/\.[^.]+$/, ''),
         color: pend ? pend.color : PALETTE[(id - 1) % PALETTE.length],
-        buffer, dur: buffer.duration, env: envelope(buffer), sm: null, peak: 1, start: 0,
+        buffer, src: f, dur: buffer.duration, env: envelope(buffer), sm: null, peak: 1, start: 0,
         sessionIdx: pend ? pend.sessionIdx : undefined,
       };
       if (S.playing) pause();
@@ -591,34 +591,126 @@ function showPlayable() {
   $('play').title = silent() ? 'Playback needs the audio files. Use Find matching files above the chart.' : '';
 }
 
-async function saveSession() {
+/* A session saved with audio is a plain .zip: session.json plus the original audio files under audio/.
+   Entries are stored uncompressed (audio doesn't shrink), so any unzip tool can open it too. */
+const CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) c = CRC[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function makeZip(entries) {          // entries: [{ name, blob }]
+  const parts = [], central = [], enc = new TextEncoder();
+  const now = new Date();
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name), size = e.blob.size, crc = crc32(new Uint8Array(await e.blob.arrayBuffer()));
+    const head = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [8, 0, 2], [10, time, 2], [12, date, 2], [14, crc, 4],
+      [18, size, 4], [22, size, 4], [26, name.length, 2], [28, 0, 2]].forEach(([o, v, n]) => n === 4 ? head.setUint32(o, v, true) : head.setUint16(o, v, true));
+    const dir = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [10, 0, 2], [12, time, 2], [14, date, 2], [16, crc, 4],
+      [20, size, 4], [24, size, 4], [28, name.length, 2], [30, 0, 2], [32, 0, 2], [34, 0, 2], [36, 0, 2], [38, 0, 4], [42, offset, 4]]
+      .forEach(([o, v, n]) => n === 4 ? dir.setUint32(o, v, true) : dir.setUint16(o, v, true));
+    parts.push(head, name, e.blob); central.push(dir, name);
+    offset += 30 + name.length + size;
+  }
+  const cdSize = central.reduce((s, b) => s + b.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [4, 0, 2], [6, 0, 2], [8, entries.length, 2], [10, entries.length, 2], [12, cdSize, 4], [16, offset, 4], [20, 0, 2]]
+    .forEach(([o, v, n]) => n === 4 ? end.setUint32(o, v, true) : end.setUint16(o, v, true));
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+
+// returns Map name -> Blob; reads stored entries, and deflated ones where the browser can
+async function readZip(file) {
+  const tail = new DataView(await file.slice(Math.max(0, file.size - 65557)).arrayBuffer());
+  let e = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a zip');
+  const count = tail.getUint16(e + 10, true), cdSize = tail.getUint32(e + 12, true), cdOff = tail.getUint32(e + 16, true);
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer()), dec = new TextDecoder();
+  const out = new Map();
+  for (let i = 0, p = 0; i < count; i++) {
+    const method = cd.getUint16(p + 10, true), comp = cd.getUint32(p + 20, true);
+    const nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true), at = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, p + 46, nl));
+    p += 46 + nl + xl + cl;
+    const lh = new DataView(await file.slice(at, at + 30).arrayBuffer());
+    const start = at + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+    let blob = file.slice(start, start + comp);
+    if (method === 8 && window.DecompressionStream) blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+    else if (method !== 0) continue;
+    out.set(name, blob);
+  }
+  return out;
+}
+
+const download = (blob, name) => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+async function saveSession(withAudio) {
   if (S.pending.some(q => !q.piece)) { status('Add the remaining audio files before saving.'); return; }
   if (!S.pieces.length) { status('Nothing to save yet.'); return; }
+  if (withAudio && S.pieces.some(p => !p.src)) {
+    status('Saving with audio needs every piece’s audio. Add the missing files first, or use Save session.');
+    return;
+  }
   if (!S.sessionId) S.sessionId = crypto.randomUUID();
   let remembered = 0;
-  if (canRemember) {
+  if (canRemember && !withAudio) {
     for (const p of S.pieces) {
       if (!p.handle) continue;
       try { await idbPut(S.sessionId + ':' + p.id, p.handle); remembered++; } catch (e) { /* storage unavailable */ }
     }
   }
+  // audio names inside the zip; two pieces from same-named files in different folders get a number
+  const used = new Set();
+  const audioName = p => {
+    let n = p.file;
+    for (let k = 2; used.has(n.toLowerCase()); k++) n = p.file.replace(/(\.[^.]+)?$/, ' (' + k + ')$1');
+    used.add(n.toLowerCase());
+    return 'audio/' + n;
+  };
   const data = {
     app: 'MIA 2', version: 2, sessionId: S.sessionId, savedAt: new Date().toISOString(),
     settings: { smoothSec: S.smoothSec, scale: S.scaleMode, dB: S.dB },
     pieces: S.pieces.map(p => ({
       id: p.id, file: p.file, title: p.title, color: p.color, dur: +p.dur.toFixed(3),
       curve: { hop: HOP, weighting: 'A', encoding: 'f32-base64', data: curveToText(p.env) },
+      ...(withAudio ? { audio: audioName(p) } : {}),
     })),
     notes: S.notes.filter(n => byId(n.pieceId)).map(n => ({ pieceId: n.pieceId, offset: +n.offset.toFixed(3), text: n.text })),
   };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'mia-session-' + new Date().toISOString().slice(0, 10) + '.json';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  status('Session saved. It holds the chart, order, titles, colors and notes, but not the audio.'
-    + (remembered ? ' This browser also remembered where ' + remembered + ' of the files are.' : ''));
+  const json = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const stamp = 'mia-session-' + new Date().toISOString().slice(0, 10);
+  if (!withAudio) {
+    download(json, stamp + '.json');
+    status('Session saved. It holds the chart, order, titles, colors and notes, but not the audio.'
+      + (remembered ? ' This browser also remembered where ' + remembered + ' of the files are.' : ''));
+    return;
+  }
+  status('Packing the audio…');
+  let zip;
+  try {
+    zip = await makeZip([{ name: 'session.json', blob: json }, ...S.pieces.map((p, i) => ({ name: data.pieces[i].audio, blob: p.src }))]);
+  } catch (e) {
+    status('Couldn’t read one of the audio files to pack it. It may have been moved; add it again and retry.');
+    return;
+  }
+  if (zip.size >= 0xFFFFFFFF) { status('That’s more than 4 GB of audio, too much for one session file.'); return; }
+  download(zip, stamp + '.zip');
+  status('Session saved with its audio (' + Math.round(zip.size / 1e6) + ' MB). Open it on any computer to get everything back, playback included.');
 }
 
 // look up remembered file locations for pending session pieces; interactive = called from a click
@@ -710,8 +802,15 @@ async function findFiles() {
 }
 
 async function openSession(file) {
-  let data;
-  try { data = JSON.parse(await file.text()); } catch (e) { data = null; }
+  let data, bundle = null;
+  try {
+    // a session saved with audio is a zip (starts with "PK"); otherwise plain JSON
+    const magic = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    if (magic[0] === 0x50 && magic[1] === 0x4B) {
+      bundle = await readZip(file);
+      data = JSON.parse(await bundle.get('session.json').text());
+    } else data = JSON.parse(await file.text());
+  } catch (e) { data = null; }
   if (!data || data.app !== 'MIA 2' || !Array.isArray(data.pieces) || !data.pieces.length) {
     status('That doesn’t look like a MIA 2 session file.');
     return;
@@ -738,6 +837,16 @@ async function openSession(file) {
   showSmooth(); $('scale').value = S.scaleMode; $('ydb').value = S.dB ? 'db' : 'lin';
   S.sessionId = data.sessionId || null;
   S.playhead = 0; layout(); recompute(); fit(); updateTime(); refreshStatus();
+  if (bundle) {
+    const files = [];
+    S.pending.forEach((q, i) => {
+      const b = data.pieces[i].audio && bundle.get(data.pieces[i].audio);
+      if (!b) return;
+      const f = new File([b], q.file);
+      claimOf.set(f, q); files.push(f);
+    });
+    await addFiles(files);
+  }
   await reconnect(false);
 }
 
@@ -892,7 +1001,8 @@ $('folder').onchange = async e => {
 };
 $('openSession').onclick = () => $('sessionFile').click();
 $('sessionFile').onchange = e => { if (e.target.files[0]) openSession(e.target.files[0]); e.target.value = ''; };
-$('saveSession').onclick = saveSession;
+$('saveSession').onclick = () => saveSession(false);
+$('saveAudio').onclick = () => saveSession(true);
 $('undo').onclick = undoRemove;
 $('file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
 $('play').onclick = () => (S.playing ? pause() : play());
@@ -955,7 +1065,7 @@ window.addEventListener('drop', async e => {
     file: i.getAsFile(),
     handle: i.getAsFileSystemHandle ? i.getAsFileSystemHandle().catch(() => null) : null,
   })).filter(d => d.file);
-  const sess = dropped.find(d => /\.json$/i.test(d.file.name));
+  const sess = dropped.find(d => /\.(json|zip)$/i.test(d.file.name));
   if (sess) { openSession(sess.file); return; }
   const audioDrops = dropped.filter(d => d.file.type.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac|aif+)$/i.test(d.file.name));
   if (!audioDrops.length) return;
