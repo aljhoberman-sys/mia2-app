@@ -61,6 +61,10 @@
   .more { display: flex; flex-wrap: wrap; gap: 12px 24px; padding-top: 8px; align-items: center; }
   .pop { position: absolute; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; width: 240px; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
   .pop[hidden] { display: none; }
+  .anchor { position: relative; }
+  #savePop { top: calc(100% + 6px); left: 0; width: 290px; }
+  .pop .check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--fg); }
+  .pop .small { font-size: 13px; color: var(--muted); }
   .pop .row { display: flex; gap: 8px; align-items: center; }
   .pop input[type=text] { flex: 1; min-width: 0; }
   .pop input[type=color] { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
@@ -84,8 +88,14 @@
         <button id="add">Add music</button>
         <input id="file" type="file" accept="audio/*" multiple hidden>
         <button id="openSession">Open session</button>
-        <button id="saveSession">Save session</button>
-        <button id="saveAudio" title="One .zip with the session and its audio files, to move to another computer or share">Save with audio</button>
+        <span class="anchor">
+          <button id="saveSession" aria-haspopup="dialog" aria-expanded="false">Save session…</button>
+          <div class="pop" id="savePop" role="dialog" aria-label="Save session" hidden>
+            <label class="check"><input type="checkbox" id="withAudio"> Include the audio files</label>
+            <div id="saveSize" class="small"></div>
+            <div class="row"><button id="saveGo">Save</button><button id="saveCancel">Cancel</button></div>
+          </div>
+        </span>
         <input id="sessionFile" type="file" accept=".json,.zip,application/json,application/zip" hidden>
       </div>
       <div class="group">
@@ -159,7 +169,7 @@
     Drop audio files anywhere on the page. Drag a piece's title bar to reorder. Drag the chart to scroll, drag along the ruler to set the start point,
     and pinch or Alt+scroll to zoom. Double-click a title bar to rename it or change its color, and use the × on a title bar to remove a piece.
     Save session keeps the chart, your order, titles, colors and notes in a file (not the audio). Opening it shows the chart straight away;
-    to play it, add the same audio files again. Save with audio makes one .zip that also holds the audio, so it opens complete on any computer.
+    to play it, add the same audio files again. Tick Include the audio files to save one .zip that also holds the audio, so it opens complete on any computer.
   </p>
 </main>
 <script src="classic.js"></script>

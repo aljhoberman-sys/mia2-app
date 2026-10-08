@@ -659,6 +659,27 @@ const download = (blob, name) => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
+/* the Save session popout: a plain save, or tick to bundle the audio, with the size it will take */
+const mb = b => (b < 1e7 ? (b / 1e6).toFixed(1) : Math.round(b / 1e6)) + ' MB';
+function showSaveSize() {
+  const missing = S.pieces.filter(p => !p.src).length;
+  const curves = S.pieces.reduce((s, p) => s + p.env.length * 4 * 4 / 3, 0) + 4000;
+  const audio = S.pieces.reduce((s, p) => s + (p.src ? p.src.size : 0), 0);
+  $('withAudio').disabled = !!missing || !S.pieces.length;
+  if (missing) $('withAudio').checked = false;
+  $('saveSize').textContent = !S.pieces.length ? 'Nothing to save yet.'
+    : missing ? 'The audio can’t be included until ' + (missing === 1 ? '1 missing file is' : missing + ' missing files are') + ' added. The session alone is about ' + mb(curves) + '.'
+    : $('withAudio').checked ? 'Saves one .zip of about ' + mb(curves + audio) + ', with the audio inside. It opens complete on any computer.'
+    : 'Saves the chart, titles, colors and notes, about ' + mb(curves) + '. Including the audio would make it about ' + mb(curves + audio) + '.';
+}
+function openSave() {
+  showSaveSize();
+  $('savePop').hidden = false; $('saveSession').setAttribute('aria-expanded', 'true');
+  $('saveGo').disabled = !S.pieces.length;
+  setTimeout(() => $('saveGo').focus(), 0);
+}
+function closeSave() { $('savePop').hidden = true; $('saveSession').setAttribute('aria-expanded', 'false'); }
+
 async function saveSession(withAudio) {
   if (S.pending.some(q => !q.piece)) { status('Add the remaining audio files before saving.'); return; }
   if (!S.pieces.length) { status('Nothing to save yet.'); return; }
@@ -1001,8 +1022,12 @@ $('folder').onchange = async e => {
 };
 $('openSession').onclick = () => $('sessionFile').click();
 $('sessionFile').onchange = e => { if (e.target.files[0]) openSession(e.target.files[0]); e.target.value = ''; };
-$('saveSession').onclick = () => saveSession(false);
-$('saveAudio').onclick = () => saveSession(true);
+$('saveSession').onclick = () => ($('savePop').hidden ? openSave() : closeSave());
+$('withAudio').onchange = showSaveSize;
+$('saveGo').onclick = () => { const a = $('withAudio').checked; closeSave(); saveSession(a); };
+$('saveCancel').onclick = closeSave;
+$('savePop').onkeydown = e => { if (e.key === 'Escape') { closeSave(); $('saveSession').focus(); } };
+document.addEventListener('pointerdown', e => { if (!$('savePop').hidden && !e.target.closest('.anchor')) closeSave(); });
 $('undo').onclick = undoRemove;
 $('file').onchange = e => { addFiles([...e.target.files]); e.target.value = ''; };
 $('play').onclick = () => (S.playing ? pause() : play());
