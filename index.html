@@ -111,6 +111,7 @@
       <div class="group">
         <button id="add">Add music</button>
         <input id="file" type="file" accept="audio/*" multiple hidden>
+        <button id="newSession" title="Clear the chart and start a new program">New</button>
         <button id="openSession">Open session</button>
         <span class="anchor">
           <button id="saveSession" aria-haspopup="dialog" aria-expanded="false">Save session…</button>
@@ -194,6 +195,7 @@
     and pinch or Alt+scroll to zoom. Double-click a title bar to rename it or change its color, and use the × on a title bar to remove a piece.
     Save session keeps the chart, your order, titles, colors and notes in a file (not the audio). Opening it shows the chart straight away;
     to play it, add the same audio files again. Tick Include the audio files to save one .zip that also holds the audio, so it opens complete on any computer.
+    Each save downloads a new file; it doesn’t overwrite the one you opened. Your current program is also kept in this browser, so reloading the page brings it back.
   </p>
 </main>
 <dialog id="feedback" aria-labelledby="fbTitle">
