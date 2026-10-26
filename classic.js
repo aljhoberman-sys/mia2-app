@@ -1109,7 +1109,7 @@ window.addEventListener('drop', async e => {
 });
 
 window.addEventListener('keydown', e => {
-  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.target.closest('dialog')) return;
   if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && S.undo) { e.preventDefault(); undoRemove(); }
   else if (e.code === 'Space') { e.preventDefault(); S.playing ? pause() : play(); }
   else if (e.code === 'ArrowLeft') seek(S.playhead - 5);

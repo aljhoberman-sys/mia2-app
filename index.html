@@ -69,6 +69,29 @@
   .pop input[type=text] { flex: 1; min-width: 0; }
   .pop input[type=color] { width: 36px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
   .hint { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+  #feedbackBtn { margin-left: auto; align-self: center; }
+  #feedback { width: min(460px, calc(100% - 32px)); padding: 0; color: var(--fg); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+  #feedback::backdrop { background: rgba(0,0,0,.35); }
+  #fbForm { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px 18px; }
+  #fbForm h2 { font-size: 17px; font-weight: 500; margin: 0; }
+  #fbForm p { margin: 0; font-size: 13px; color: var(--muted); }
+  #fbForm .field { display: flex; flex-direction: column; gap: 3px; }
+  #fbForm input[type=text], #fbForm input[type=email], #fbForm textarea { font: inherit; font-size: 14px; color: var(--fg);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; width: 100%; }
+  #fbForm textarea { min-height: 120px; resize: vertical; }
+  #fbForm .check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--fg); }
+  #fbForm .check[hidden], #fbForm .trap { display: none; }
+  #fbFiles { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  #fbFiles:empty { display: none; }
+  #fbFiles li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  #fbFiles button { padding: 0 8px; font-size: 13px; }
+  #fbNote { min-height: 20px; font-size: 13px; color: var(--muted); }
+  #fbNote.bad { color: #b3261e; }
+  @media (prefers-color-scheme: dark) { #fbNote.bad { color: #f2b8b5; } }
+  #fbForm .row { display: flex; gap: 8px; justify-content: flex-end; }
+  #fbSend { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+  #fbSend:hover { background: var(--accent); filter: brightness(1.1); }
   @media print {
     body { background: #fff; color: #000; }
     .no-print, details, #status, .hint { display: none !important; }
@@ -80,6 +103,7 @@
 <main>
   <header>
     <h1>MIA 2</h1><span class="tag">Classic view</span>
+    <button id="feedbackBtn" class="no-print">Send feedback</button>
   </header>
 
   <div class="card" id="card">
@@ -172,6 +196,27 @@
     to play it, add the same audio files again. Tick Include the audio files to save one .zip that also holds the audio, so it opens complete on any computer.
   </p>
 </main>
+<dialog id="feedback" aria-labelledby="fbTitle">
+  <form id="fbForm" novalidate>
+    <h2 id="fbTitle">Send feedback</h2>
+    <p>Found a problem or have an idea? Tell us here. It goes straight to the MIA 2 team by email.</p>
+    <div class="field"><label for="fbName">Your name</label><input id="fbName" type="text" autocomplete="name"></div>
+    <div class="field"><label for="fbEmail">Your email, if you'd like a reply (optional)</label><input id="fbEmail" type="email" autocomplete="email"></div>
+    <div class="field"><label for="fbMessage">What happened, or what would you like?</label><textarea id="fbMessage"></textarea></div>
+    <input id="fbHoney" class="trap" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <div class="field">
+      <div class="row" style="justify-content: flex-start"><button type="button" id="fbPick">Attach files…</button></div>
+      <p>Optional. You can also paste or drop a screenshot here. Up to 10 MB in all.</p>
+      <ul id="fbFiles"></ul>
+      <input id="fbInput" type="file" multiple hidden>
+    </div>
+    <label class="check" id="fbChartRow"><input type="checkbox" id="fbChart"> Include a picture of the current chart</label>
+    <div id="fbNote" role="status" aria-live="polite"></div>
+    <div class="row"><button type="button" id="fbCancel">Cancel</button><button type="submit" id="fbSend">Send</button></div>
+  </form>
+</dialog>
+<iframe name="fbFrame" id="fbFrame" title="Feedback delivery" hidden></iframe>
 <script src="classic.js"></script>
+<script src="feedback.js"></script>
 </body>
 </html>
